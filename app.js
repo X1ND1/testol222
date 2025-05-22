@@ -20,13 +20,14 @@ let lastClickTime = 0;
 
 // Загружаем сохранённые пиксели из localStorage
 let savedPixels = JSON.parse(localStorage.getItem('pixels')) || {};
+console.log(savedPixels); // Отладочный вывод
 
 // Создаем кнопки выбора цвета
-for(let color of COLORS) {
+for (let color of COLORS) {
   const btn = document.createElement('div');
   btn.className = 'color-btn';
   btn.style.backgroundColor = color;
-  if(color === selectedColor) btn.classList.add('selected');
+  if (color === selectedColor) btn.classList.add('selected');
   btn.addEventListener('click', () => {
     selectedColor = color;
     document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
@@ -36,7 +37,7 @@ for(let color of COLORS) {
 }
 
 // Создаем сетку пикселей
-for(let i = 0; i < SIZE * SIZE; i++) {
+for (let i = 0; i < SIZE * SIZE; i++) {
   const pixel = document.createElement('div');
   pixel.className = 'pixel';
   pixel.dataset.index = i;
@@ -53,7 +54,7 @@ for(let i = 0; i < SIZE * SIZE; i++) {
     pixel.style.backgroundColor = selectedColor;
     lastClickTime = now;
     savedPixels[i] = selectedColor;
-    localStorage.setItem('pixels', JSON.stringify(savedPixels));
+    localStorage.setItem('pixels', JSON.stringify(savedPixels)); // Сохраняем изменения в localStorage
   });
 
   canvas.appendChild(pixel);
