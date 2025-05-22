@@ -27,29 +27,14 @@ socket.onmessage = function(event) {
   createCanvas(size, updatedCanvas);
 };
 
-// Создаем кнопки выбора цвета
-for (let color of COLORS) {
-  const btn = document.createElement('div');
-  btn.className = 'color-btn';
-  btn.style.backgroundColor = color;
-  if (color === selectedColor) btn.classList.add('selected');
-  btn.addEventListener('click', () => {
-    selectedColor = color;
-    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-  });
-  colorsContainer.appendChild(btn);
-}
-
-// Создаем сетку пикселей
 function createCanvas(size, updatedCanvas) {
-  canvas.innerHTML = ''; // Очищаем старую сетку
+  canvas.innerHTML = ''; // Очищаем старую сетку пикселей
 
   for (let i = 0; i < size * size; i++) {
     const pixel = document.createElement('div');
     pixel.className = 'pixel';
     pixel.dataset.index = i;
-    pixel.style.backgroundColor = updatedCanvas[i] || COLORS[0];
+    pixel.style.backgroundColor = updatedCanvas[`${i % size}_${Math.floor(i / size)}`] || COLORS[0];
 
     pixel.addEventListener('click', () => {
       const now = Date.now();
@@ -63,14 +48,25 @@ function createCanvas(size, updatedCanvas) {
       lastClickTime = now;
 
       // Отправляем данные на сервер через WebSocket
-      socket.send(JSON.stringify({ x: i % size, y: Math.floor(i / size), color: selectedColor }));
+      const x = i % size;
+      const y = Math.floor(i / size);
+      socket.send(JSON.stringify({ x, y, color: selectedColor }));
     });
 
     canvas.appendChild(pixel);
   }
 }
 
-// Загружаем состояние холста при подключении
-socket.addEventListener('open', () => {
-  socket.send('get_canvas');
-});
+// Создаем кнопки выбора цвета
+for (let color of COLORS) {
+  const btn = document.createElement('div');
+  btn.className = 'color-btn';
+  btn.style.backgroundColor = color;
+  if (color === selectedColor) btn.classList.add('selected');
+  btn.addEventListener('click', () => {
+    selectedColor = color;
+    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+  });
+  colorsContainer.appendChild(btn);
+}
