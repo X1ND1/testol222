@@ -1,0 +1,229 @@
+import time
+import threading
+from collections import defaultdict
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+import uvicorn
+
+BOT_TOKEN = "7666419947:AAGWZCnOENQnGmu0mqo2BsoMeLlI28mkpGQ"
+WEBAPP_URL = "https://testol222.onrender.com/"
+CANVAS_SIZE = 20
+COOLDOWN_SECONDS = 5
+
+canvas = defaultdict(lambda: "#FFFFFF")
+user_last_action = {}
+
+# --- Telegram handlers ---
+
+def render_canvas_text():
+    text = "\n".join([
+        "".join(["⬛" if canvas[f"{x}_{y}"] != "#FFFFFF" else "⬜" for x in range(CANVAS_SIZE)])
+        for y in range(CANVAS_SIZE)
+    ])
+    return text
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[
+        KeyboardButton(
+            "🚀 Открыть Pixel Canvas",
+            web_app=WebAppInfo(url=WEBAPP_URL)
+        )
+    ]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text(
+        "Привет! Нажми кнопку, чтобы открыть веб-приложение с холстом.",
+        reply_markup=reply_markup
+    )
+    await update.message.reply_text(render_canvas_text())
+
+async def handle_pixel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    text = update.message.text.strip()
+    now = time.time()
+
+    if user_id in user_last_action and now - user_last_action[user_id] < COOLDOWN_SECONDS:
+        remaining = int(COOLDOWN_SECONDS - (now - user_last_action[user_id]))
+        await update.message.reply_text(f"Подожди {remaining} сек перед следующим пикселем ⏳")
+        return
+
+    try:
+        parts = text.split()
+        x, y = int(parts[0]), int(parts[1])
+        color = parts[2].upper()
+        if not (0 <= x < CANVAS_SIZE and 0 <= y < CANVAS_SIZE):
+            raise ValueError("Координаты вне холста")
+        if not color.startswith("#") or len(color) != 7:
+            raise ValueError("Неверный формат цвета")
+        canvas[f"{x}_{y}"] = color
+        user_last_action[user_id] = now
+        await update.message.reply_text("✅ Пиксель установлен")
+        await update.message.reply_text(render_canvas_text())
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка: {str(e)}")
+
+# --- FastAPI app ---
+
+app = FastAPI()
+
+@app.get("/canvas")
+async def get_canvas():
+    return {"canvas": dict(canvas), "size": CANVAS_SIZE}
+
+@app.post("/place")
+async def place_pixel(data: dict):
+    x = data.get("x")
+    y = data.get("y")
+    color = data.get("color", "#FFFFFF").upper()
+    if not (0 <= x < CANVAS_SIZE and 0 <= y < CANVAS_SIZE):
+        raise HTTPException(status_code=400, detail="Координаты вне холста")
+    if not color.startswith("#") or len(color) != 7:
+        raise HTTPException(status_code=400, detail="Неверный формат цвета")
+    canvas[f"{x}_{y}"] = color
+    return {"status": "ok"}
+
+@app.get("/", response_class=HTMLResponse)
+async def main_page():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Pixel Canvas</title>
+<style>
+  body {
+    background-color: #222;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: Arial, sans-serif;
+    color: white;
+  }
+  #canvas {
+    margin-top: 20px;
+    display: grid;
+    grid-gap: 1px;
+    background: #444;
+  }
+  .pixel {
+    width: 20px;
+    height: 20px;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  #colorPicker {
+    margin-top: 15px;
+    width: 120px;
+    height: 35px;
+    border: none;
+    cursor: pointer;
+  }
+  #status {
+    margin-top: 10px;
+    height: 20px;
+  }
+</style>
+</head>
+<body>
+<h1>Pixel Canvas</h1>
+<input type="color" id="colorPicker" value="#FF0000" />
+<div id="status"></div>
+<div id="canvas"></div>
+
+<script>
+  const canvasDiv = document.getElementById('canvas');
+  const colorPicker = document.getElementById('colorPicker');
+  const status = document.getElementById('status');
+  const COOLDOWN = 5000; // 5 секунд
+  let lastClickTime = 0;
+  let canvasSize = 20;
+
+  function createCanvas(size) {
+    canvasDiv.style.gridTemplateColumns = `repeat(${size}, 20px)`;
+    canvasDiv.style.gridTemplateRows = `repeat(${size}, 20px)`;
+    canvasDiv.innerHTML = '';
+    for(let y=0; y<size; y++) {
+      for(let x=0; x<size; x++) {
+        const div = document.createElement('div');
+        div.className = 'pixel';
+        div.dataset.x = x;
+        div.dataset.y = y;
+        div.style.backgroundColor = '#FFFFFF';
+        div.addEventListener('click', onPixelClick);
+        canvasDiv.appendChild(div);
+      }
+    }
+  }
+
+  async function fetchCanvas() {
+    try {
+      const res = await fetch('/canvas');
+      const data = await res.json();
+      canvasSize = data.size;
+      createCanvas(canvasSize);
+      for(const key in data.canvas) {
+        const color = data.canvas[key];
+        const [x, y] = key.split('_');
+        const pixel = canvasDiv.querySelector(`.pixel[data-x="${x}"][data-y="${y}"]`);
+        if(pixel) pixel.style.backgroundColor = color;
+      }
+    } catch {
+      status.textContent = 'Ошибка загрузки холста.';
+    }
+  }
+
+  async function onPixelClick(e) {
+    const now = Date.now();
+    if(now - lastClickTime < COOLDOWN) {
+      const wait = ((COOLDOWN - (now - lastClickTime))/1000).toFixed(1);
+      status.textContent = `Подожди ещё ${wait} секунд`;
+      return;
+    }
+    status.textContent = '';
+    const pixel = e.target;
+    const x = parseInt(pixel.dataset.x);
+    const y = parseInt(pixel.dataset.y);
+    const color = colorPicker.value.toUpperCase();
+    try {
+      const res = await fetch('/place', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({x, y, color})
+      });
+      if(!res.ok) {
+        const err = await res.json();
+        status.textContent = `Ошибка: ${err.detail}`;
+        return;
+      }
+      pixel.style.backgroundColor = color;
+      lastClickTime = now;
+      status.textContent = 'Пиксель установлен!';
+    } catch {
+      status.textContent = 'Ошибка сети.';
+    }
+  }
+
+  // Обновляем холст каждые 5 секунд
+  setInterval(fetchCanvas, 5000);
+  fetchCanvas();
+</script>
+</body>
+</html>
+    """
+
+def run_fastapi():
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+def main():
+    threading.Thread(target=run_fastapi, daemon=True).start()
+
+    telegram_app = Application.builder().token(BOT_TOKEN).build()
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_pixel))
+
+    print("Бот запущен...")
+    telegram_app.run_polling()
+
+if __name__ == "__main__":
+    main()
