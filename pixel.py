@@ -15,7 +15,7 @@ COOLDOWN_SECONDS = 5
 
 canvas = defaultdict(lambda: "#FFFFFF")
 user_last_action = {}
-connected_clients = []
+connected_clients = []  # Список для WebSocket клиентов
 
 # Загрузка и сохранение состояния холста в файл
 def load_canvas():
@@ -33,26 +33,18 @@ canvas = load_canvas()  # Загружаем состояние холста п�
 
 # --- Telegram handlers ---
 
-def render_canvas_text():
-    text = "\n".join([ 
-        "".join(["⬛" if canvas[f"{x}_{y}"] != "#FFFFFF" else "⬜" for x in range(CANVAS_SIZE)]) 
-        for y in range(CANVAS_SIZE)
-    ])
-    return text
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[
         KeyboardButton(
-            "🚀 Открыть Pixel Canvas",
+            "Запустить приложение",  # Изменяем текст на кнопке
             web_app=WebAppInfo(url=WEBAPP_URL)
         )
     ]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
-        "Привет! Нажми кнопку, чтобы открыть веб-приложение с холстом.",
+        "Привет! Нажми кнопку, чтобы открыть веб-приложение с холстом.",  # Изменяем текст
         reply_markup=reply_markup
     )
-    await update.message.reply_text(render_canvas_text())
 
 async def handle_pixel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -75,8 +67,10 @@ async def handle_pixel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         canvas[f"{x}_{y}"] = color
         user_last_action[user_id] = now
         save_canvas()  # Сохраняем обновленное состояние холста
+        # Отправляем обновления всем подключенным WebSocket клиентам
+        for client in connected_clients:
+            await client.send_json({"canvas": dict(canvas), "size": CANVAS_SIZE})
         await update.message.reply_text("✅ Пиксель установлен")
-        await update.message.reply_text(render_canvas_text())
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {str(e)}")
 
@@ -99,7 +93,7 @@ async def place_pixel(data: dict):
         raise HTTPException(status_code=400, detail="Неверный формат цвета")
     canvas[f"{x}_{y}"] = color
     save_canvas()  # Сохраняем обновленное состояние холста
-    # Отправляем обновления всем подключенным клиентам
+    # Отправляем обновления всем подключенным WebSocket клиентам
     for client in connected_clients:
         await client.send_json({"canvas": dict(canvas), "size": CANVAS_SIZE})
     return {"status": "ok"}
@@ -121,7 +115,7 @@ async def websocket_endpoint(websocket: WebSocket):
             if 0 <= x < CANVAS_SIZE and 0 <= y < CANVAS_SIZE:
                 canvas[f"{x}_{y}"] = color
                 save_canvas()
-                # Отправляем обновления всем клиентам
+                # Отправляем обновления всем подключенным клиентам
                 for client in connected_clients:
                     await client.send_json({"canvas": dict(canvas), "size": CANVAS_SIZE})
 
@@ -214,11 +208,8 @@ async def main_page():
   async function onPixelClick(e) {
     const now = Date.now();
     if(now - lastClickTime < COOLDOWN) {
-      const wait = ((COOLDOWN - (now - lastClickTime))/1000).toFixed(1);
-      status.textContent = `Подожди ещё ${wait} секунд`;
       return;
     }
-    status.textContent = '';
     const pixel = e.target;
     const x = parseInt(pixel.dataset.x);
     const y = parseInt(pixel.dataset.y);
@@ -227,7 +218,6 @@ async def main_page():
     // Отправляем данные через WebSocket
     socket.send(JSON.stringify({ x, y, color }));
     lastClickTime = now;
-    status.textContent = 'Пиксель установлен!';
   }
 </script>
 </body>
