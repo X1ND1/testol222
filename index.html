@@ -6,7 +6,7 @@
 <title>Pixel Battle WebApp</title>
 <style>
   body {
-    background: #888; /* серый фон */
+    background: #888;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -57,64 +57,7 @@
 <div id="canvas"></div>
 <div id="cooldown"></div>
 
-<script>
-const canvas = document.getElementById('canvas');
-const colorsContainer = document.getElementById('colors');
-const cooldownText = document.getElementById('cooldown');
-const SIZE = 50;
-const COOLDOWN = 5; // секунд
-
-// Набор цветов, как в Pixel Battle
-const COLORS = [
-  '#FFFFFF', // белый (стандарт)
-  '#FF0000', // красный
-  '#00FF00', // зелёный
-  '#0000FF', // синий
-  '#FFFF00', // жёлтый
-  '#FFA500', // оранжевый
-  '#800080', // фиолетовый
-  '#000000'  // чёрный
-];
-
-let selectedColor = COLORS[1]; // по умолчанию красный
-let lastClickTime = 0;
-
-// Создаем кнопки выбора цвета
-for(let color of COLORS) {
-  const btn = document.createElement('div');
-  btn.className = 'color-btn';
-  btn.style.backgroundColor = color;
-  if(color === selectedColor) btn.classList.add('selected');
-  btn.addEventListener('click', () => {
-    selectedColor = color;
-    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-  });
-  colorsContainer.appendChild(btn);
-}
-
-// Создаем сетку пикселей
-for(let i = 0; i < SIZE * SIZE; i++) {
-  const pixel = document.createElement('div');
-  pixel.className = 'pixel';
-  pixel.dataset.index = i;
-  pixel.style.backgroundColor = COLORS[0]; // белый
-
-  pixel.addEventListener('click', () => {
-    const now = Date.now();
-    if (now - lastClickTime < COOLDOWN * 1000) {
-      const secondsLeft = ((COOLDOWN * 1000 - (now - lastClickTime)) / 1000).toFixed(1);
-      cooldownText.textContent = `Подожди еще ${secondsLeft} секунд перед следующим пикселем ⏳`;
-      return;
-    }
-    cooldownText.textContent = '';
-    pixel.style.backgroundColor = selectedColor;
-    lastClickTime = now;
-  });
-
-  canvas.appendChild(pixel);
-}
-</script>
+<script src="app.js"></script>
 
 </body>
 </html>
