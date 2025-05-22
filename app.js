@@ -18,9 +18,14 @@ const COLORS = [
 let selectedColor = COLORS[1];
 let lastClickTime = 0;
 
-// Загружаем сохранённые пиксели из localStorage
-let savedPixels = JSON.parse(localStorage.getItem('pixels')) || {};
-console.log(savedPixels); // Отладочный вывод
+// Подключаемся к серверу через WebSocket
+const socket = new WebSocket("ws://localhost:8000/ws");
+
+socket.onmessage = function(event) {
+  const data = JSON.parse(event.data);
+  const { canvas: updatedCanvas, size } = data;
+  createCanvas(size, updatedCanvas);
+};
 
 // Создаем кнопки выбора цвета
 for (let color of COLORS) {
@@ -37,25 +42,35 @@ for (let color of COLORS) {
 }
 
 // Создаем сетку пикселей
-for (let i = 0; i < SIZE * SIZE; i++) {
-  const pixel = document.createElement('div');
-  pixel.className = 'pixel';
-  pixel.dataset.index = i;
-  pixel.style.backgroundColor = savedPixels[i] || COLORS[0];
+function createCanvas(size, updatedCanvas) {
+  canvas.innerHTML = ''; // Очищаем старую сетку
 
-  pixel.addEventListener('click', () => {
-    const now = Date.now();
-    if (now - lastClickTime < COOLDOWN * 1000) {
-      const secondsLeft = ((COOLDOWN * 1000 - (now - lastClickTime)) / 1000).toFixed(1);
-      cooldownText.textContent = `Подожди еще ${secondsLeft} секунд перед следующим пикселем ⏳`;
-      return;
-    }
-    cooldownText.textContent = '';
-    pixel.style.backgroundColor = selectedColor;
-    lastClickTime = now;
-    savedPixels[i] = selectedColor;
-    localStorage.setItem('pixels', JSON.stringify(savedPixels)); // Сохраняем изменения в localStorage
-  });
+  for (let i = 0; i < size * size; i++) {
+    const pixel = document.createElement('div');
+    pixel.className = 'pixel';
+    pixel.dataset.index = i;
+    pixel.style.backgroundColor = updatedCanvas[i] || COLORS[0];
 
-  canvas.appendChild(pixel);
+    pixel.addEventListener('click', () => {
+      const now = Date.now();
+      if (now - lastClickTime < COOLDOWN * 1000) {
+        const secondsLeft = ((COOLDOWN * 1000 - (now - lastClickTime)) / 1000).toFixed(1);
+        cooldownText.textContent = `Подожди еще ${secondsLeft} секунд перед следующим пикселем ⏳`;
+        return;
+      }
+      cooldownText.textContent = '';
+      pixel.style.backgroundColor = selectedColor;
+      lastClickTime = now;
+
+      // Отправляем данные на сервер через WebSocket
+      socket.send(JSON.stringify({ x: i % size, y: Math.floor(i / size), color: selectedColor }));
+    });
+
+    canvas.appendChild(pixel);
+  }
 }
+
+// Загружаем состояние холста при подключении
+socket.addEventListener('open', () => {
+  socket.send('get_canvas');
+});
