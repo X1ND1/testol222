@@ -3,18 +3,19 @@ import threading
 from collections import defaultdict
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import uvicorn
 import json
 
 BOT_TOKEN = "7666419947:AAGWZCnOENQnGmu0mqo2BsoMeLlI28mkpGQ"
-WEBAPP_URL = "https://testol222.onrender.com/"
+WEBAPP_URL = "https://testol222.vercel.app/"
 CANVAS_SIZE = 20
 COOLDOWN_SECONDS = 5
 
 canvas = defaultdict(lambda: "#FFFFFF")
 user_last_action = {}
+connected_clients = []
 
 # Загрузка и сохранение состояния холста в файл
 def load_canvas():
@@ -98,7 +99,35 @@ async def place_pixel(data: dict):
         raise HTTPException(status_code=400, detail="Неверный формат цвета")
     canvas[f"{x}_{y}"] = color
     save_canvas()  # Сохраняем обновленное состояние холста
+    # Отправляем обновления всем подключенным клиентам
+    for client in connected_clients:
+        await client.send_json({"canvas": dict(canvas), "size": CANVAS_SIZE})
     return {"status": "ok"}
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    # Присоединяем нового клиента
+    await websocket.accept()
+    connected_clients.append(websocket)
+    try:
+        # Отправляем начальное состояние холста при подключении
+        await websocket.send_json({"canvas": dict(canvas), "size": CANVAS_SIZE})
+
+        # Ожидаем сообщений от клиента (например, когда он рисует)
+        while True:
+            data = await websocket.receive_json()
+            x, y, color = data["x"], data["y"], data["color"]
+            # Обновляем холст
+            if 0 <= x < CANVAS_SIZE and 0 <= y < CANVAS_SIZE:
+                canvas[f"{x}_{y}"] = color
+                save_canvas()
+                # Отправляем обновления всем клиентам
+                for client in connected_clients:
+                    await client.send_json({"canvas": dict(canvas), "size": CANVAS_SIZE})
+
+    except WebSocketDisconnect:
+        # Убираем клиента из списка при отключении
+        connected_clients.remove(websocket)
 
 @app.get("/", response_class=HTMLResponse)
 async def main_page():
@@ -156,7 +185,16 @@ async def main_page():
   let lastClickTime = 0;
   let canvasSize = 20;
 
-  function createCanvas(size) {
+  const socket = new WebSocket("ws://localhost:8000/ws");
+
+  socket.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    const { canvas, size } = data;
+    canvasSize = size;
+    createCanvas(canvasSize, canvas);
+  };
+
+  function createCanvas(size, canvas) {
     canvasDiv.style.gridTemplateColumns = `repeat(${size}, 20px)`;
     canvasDiv.style.gridTemplateRows = `repeat(${size}, 20px)`;
     canvasDiv.innerHTML = '';
@@ -166,27 +204,10 @@ async def main_page():
         div.className = 'pixel';
         div.dataset.x = x;
         div.dataset.y = y;
-        div.style.backgroundColor = '#FFFFFF';
+        div.style.backgroundColor = canvas[`${x}_${y}`] || '#FFFFFF';
         div.addEventListener('click', onPixelClick);
         canvasDiv.appendChild(div);
       }
-    }
-  }
-
-  async function fetchCanvas() {
-    try {
-      const res = await fetch('/canvas');
-      const data = await res.json();
-      canvasSize = data.size;
-      createCanvas(canvasSize);
-      for(const key in data.canvas) {
-        const color = data.canvas[key];
-        const [x, y] = key.split('_');
-        const pixel = canvasDiv.querySelector(`.pixel[data-x="${x}"][data-y="${y}"]`);
-        if(pixel) pixel.style.backgroundColor = color;
-      }
-    } catch {
-      status.textContent = 'Ошибка загрузки холста.';
     }
   }
 
@@ -202,28 +223,12 @@ async def main_page():
     const x = parseInt(pixel.dataset.x);
     const y = parseInt(pixel.dataset.y);
     const color = colorPicker.value.toUpperCase();
-    try {
-      const res = await fetch('/place', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({x, y, color})
-      });
-      if(!res.ok) {
-        const err = await res.json();
-        status.textContent = `Ошибка: ${err.detail}`;
-        return;
-      }
-      pixel.style.backgroundColor = color;
-      lastClickTime = now;
-      status.textContent = 'Пиксель установлен!';
-    } catch {
-      status.textContent = 'Ошибка сети.';
-    }
+    
+    // Отправляем данные через WebSocket
+    socket.send(JSON.stringify({ x, y, color }));
+    lastClickTime = now;
+    status.textContent = 'Пиксель установлен!';
   }
-
-  // Обновляем холст каждые 5 секунд
-  setInterval(fetchCanvas, 5000);
-  fetchCanvas();
 </script>
 </body>
 </html>
