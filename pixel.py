@@ -6,6 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 import uvicorn
+import json
 
 BOT_TOKEN = "7666419947:AAGWZCnOENQnGmu0mqo2BsoMeLlI28mkpGQ"
 WEBAPP_URL = "https://testol222.onrender.com/"
@@ -15,11 +16,25 @@ COOLDOWN_SECONDS = 5
 canvas = defaultdict(lambda: "#FFFFFF")
 user_last_action = {}
 
+# Загрузка и сохранение состояния холста в файл
+def load_canvas():
+    try:
+        with open('canvas_state.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return defaultdict(lambda: "#FFFFFF")
+
+def save_canvas():
+    with open('canvas_state.json', 'w') as f:
+        json.dump(canvas, f)
+
+canvas = load_canvas()  # Загружаем состояние холста при запуске сервера
+
 # --- Telegram handlers ---
 
 def render_canvas_text():
-    text = "\n".join([
-        "".join(["⬛" if canvas[f"{x}_{y}"] != "#FFFFFF" else "⬜" for x in range(CANVAS_SIZE)])
+    text = "\n".join([ 
+        "".join(["⬛" if canvas[f"{x}_{y}"] != "#FFFFFF" else "⬜" for x in range(CANVAS_SIZE)]) 
         for y in range(CANVAS_SIZE)
     ])
     return text
@@ -58,6 +73,7 @@ async def handle_pixel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise ValueError("Неверный формат цвета")
         canvas[f"{x}_{y}"] = color
         user_last_action[user_id] = now
+        save_canvas()  # Сохраняем обновленное состояние холста
         await update.message.reply_text("✅ Пиксель установлен")
         await update.message.reply_text(render_canvas_text())
     except Exception as e:
@@ -81,6 +97,7 @@ async def place_pixel(data: dict):
     if not color.startswith("#") or len(color) != 7:
         raise HTTPException(status_code=400, detail="Неверный формат цвета")
     canvas[f"{x}_{y}"] = color
+    save_canvas()  # Сохраняем обновленное состояние холста
     return {"status": "ok"}
 
 @app.get("/", response_class=HTMLResponse)
